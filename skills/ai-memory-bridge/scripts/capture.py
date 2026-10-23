@@ -36,8 +36,11 @@ from memory_utils import (  # noqa: E402
     compact_memory,
     compute_content_hash,
     detect_conflicts_for_entry,
+    detect_stale_file_references,
+    extract_file_references,
     find_duplicate_entry,
     generate_entry_id,
+    get_current_git_branch,
     get_memory_paths,
     load_memory,
     redact_secrets,
@@ -46,6 +49,7 @@ from memory_utils import (  # noqa: E402
     save_memory,
     scan_for_prompt_injection,
     scan_for_secrets,
+    search_memory_entries,
     sort_entries_by_priority,
     utc_now_iso,
 )
@@ -95,6 +99,8 @@ def add_memory_entry(
     priority: str = "medium",
     tags: list[str] | None = None,
     supersedes: str | None = None,
+    branch: str | None = None,
+    files: list[str] | None = None,
     allow_redact_secrets: bool = False,
     auto_init: bool = True,
     dry_run: bool = False,
@@ -116,6 +122,9 @@ def add_memory_entry(
     clean_title, clean_content, redacted_secrets = _validate_and_clean_content(
         title, content, allow_redact_secrets=allow_redact_secrets
     )
+    resolved_branch = (branch or get_current_git_branch(workspace_root)).strip() or "main"
+    auto_files = extract_file_references(f"{clean_title}\n{clean_content}")
+    merged_files = sorted(set((files or []) + auto_files))
 
     if dry_run and not paths["memory_json"].exists():
         return {
@@ -127,6 +136,8 @@ def add_memory_entry(
                 "content": clean_content,
                 "priority": priority,
                 "source": source,
+                "branch": resolved_branch,
+                "files": merged_files,
             },
         }
 
@@ -185,6 +196,8 @@ def add_memory_entry(
         "status": "active",
         "priority": priority,
         "tags": sorted(set(tags or [])),
+        "branch": resolved_branch,
+        "files": merged_files,
         "supersedes": supersedes,
         "superseded_by": None,
         "content_hash": compute_content_hash(entry_type, clean_title, clean_content),
@@ -403,6 +416,64 @@ def _collect_git_progress_summary(workspace_root: Path) -> str:
         return ""
 
 
+def capture_git_context(
+    workspace_root: Path,
+    max_commits: int = 5,
+    source: str = "git-auto",
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Automatically extract branch, recent commits, and working tree status from Git into project memory."""
+    workspace_root = workspace_root.resolve()
+    branch = get_current_git_branch(workspace_root)
+
+    commits: list[str] = []
+    try:
+        proc_log = subprocess.run(
+            ["git", "log", f"-n{max(1, int(max_commits))}", "--oneline"],
+            cwd=str(workspace_root),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=5,
+        )
+        if proc_log.returncode == 0:
+            commits = [line.strip() for line in proc_log.stdout.splitlines() if line.strip()]
+    except Exception:
+        pass
+
+    working_changes = _collect_git_progress_summary(workspace_root)
+    if not commits and not working_changes:
+        raise MemoryBridgeError("No Git commits or working tree modifications found in workspace.")
+
+    parts = [f"Active Git branch: `{branch}`."]
+    if commits:
+        parts.append("Recent commits: " + "; ".join(commits) + ".")
+    if working_changes:
+        parts.append(working_changes)
+
+    summary_content = " ".join(parts)
+    res = add_memory_entry(
+        workspace_root=workspace_root,
+        entry_type="session_summary",
+        title=f"Git Progress Snapshot ({branch})",
+        content=summary_content,
+        source=source,
+        priority="medium",
+        tags=["git-auto", branch],
+        branch=branch,
+        allow_redact_secrets=True,
+        dry_run=dry_run,
+    )
+    return {
+        "status": "git_captured",
+        "branch": branch,
+        "commits_included": len(commits),
+        "working_tree_dirty": bool(working_changes),
+        "entry": res["entry"],
+    }
+
+
 def handle_hook_event(workspace_root: Path, event_name: str) -> dict[str, Any]:
     """Handle lifecycle hook events (SessionStart / PostToolUse / Stop) with automatic progress saving."""
     workspace_root = workspace_root.resolve()
@@ -510,6 +581,8 @@ def main(argv: list[str] | None = None) -> int:
     p_add.add_argument("--source", default="manual", help="Agent or source recording this entry.")
     p_add.add_argument("--priority", default="medium", choices=VALID_PRIORITIES, help="Priority level.")
     p_add.add_argument("--tags", default="", help="Comma-separated list of tags.")
+    p_add.add_argument("--branch", default=None, help="Git branch name (auto-detected if omitted).")
+    p_add.add_argument("--files", default="", help="Comma-separated relative file paths related to this entry.")
     p_add.add_argument("--supersedes", default=None, help="Entry ID that this entry replaces/updates.")
     p_add.add_argument("--redact-secrets", action="store_true", help="Automatically mask detected secrets instead of failing.")
     p_add.add_argument("--dry-run", action="store_true", help="Preview without writing.")
@@ -542,8 +615,28 @@ def main(argv: list[str] | None = None) -> int:
     p_list.add_argument("--workspace", default=".", help="Workspace root directory.")
     p_list.add_argument("--type", choices=VALID_ENTRY_TYPES, default=None, help="Filter by entry type.")
     p_list.add_argument("--status", choices=VALID_STATUSES, default=None, help="Filter by status.")
+    p_list.add_argument("--branch", default=None, help="Filter by Git branch.")
     p_list.add_argument("--query", default=None, help="Substring search query.")
     p_list.add_argument("--json", action="store_true", help="Output JSON.")
+
+    p_search = subparsers.add_parser("search", help="BM25 & file-affinity relevance search across memory.")
+    p_search.add_argument("--workspace", default=".", help="Workspace root directory.")
+    p_search.add_argument("--query", default="", help="Keywords or natural language search query.")
+    p_search.add_argument("--file", default="", help="Relative file path to boost entries relevant to this file.")
+    p_search.add_argument("--branch", default="", help="Optional Git branch filter/boost.")
+    p_search.add_argument("--top", type=int, default=5, help="Max top-ranked entries to return (default: 5).")
+    p_search.add_argument("--json", action="store_true", help="Output JSON.")
+
+    p_autogit = subparsers.add_parser("auto-git", help="Automatically capture Git branch, recent commits, and diff status.")
+    p_autogit.add_argument("--workspace", default=".", help="Workspace root directory.")
+    p_autogit.add_argument("--commits", type=int, default=5, help="Number of recent Git commits to summarize.")
+    p_autogit.add_argument("--source", default="git-auto", help="Source label.")
+    p_autogit.add_argument("--dry-run", action="store_true", help="Preview without writing.")
+    p_autogit.add_argument("--json", action="store_true", help="Output JSON.")
+
+    p_stale = subparsers.add_parser("check-stale", help="Detect active entries referencing deleted or moved files.")
+    p_stale.add_argument("--workspace", default=".", help="Workspace root directory.")
+    p_stale.add_argument("--json", action="store_true", help="Output JSON.")
 
     p_compact = subparsers.add_parser("compact", help="Compact memory to fit token/entry budget.")
     p_compact.add_argument("--workspace", default=".", help="Workspace root directory.")
@@ -570,6 +663,7 @@ def main(argv: list[str] | None = None) -> int:
         ws = Path(getattr(args, "workspace", "."))
         if args.command == "add":
             tag_list = [t.strip() for t in args.tags.split(",") if t.strip()]
+            file_list = [f.strip() for f in args.files.split(",") if f.strip()]
             res = add_memory_entry(
                 workspace_root=ws,
                 entry_type=args.type,
@@ -579,6 +673,8 @@ def main(argv: list[str] | None = None) -> int:
                 priority=args.priority,
                 tags=tag_list,
                 supersedes=args.supersedes,
+                branch=args.branch,
+                files=file_list,
                 allow_redact_secrets=args.redact_secrets,
                 dry_run=args.dry_run,
             )
@@ -632,6 +728,8 @@ def main(argv: list[str] | None = None) -> int:
                 items = [e for e in items if e.get("type") == args.type]
             if args.status:
                 items = [e for e in items if e.get("status") == args.status]
+            if args.branch:
+                items = [e for e in items if e.get("branch", "main") == args.branch]
             if args.query:
                 q = args.query.lower()
                 items = [
@@ -639,16 +737,63 @@ def main(argv: list[str] | None = None) -> int:
                     for e in items
                     if q in e.get("title", "").lower() or q in e.get("content", "").lower()
                 ]
-            items = sort_entries_by_priority(items)
+            items = sort_entries_by_priority(items, preferred_branch=args.branch)
             if args.json:
                 print(json.dumps({"entries": items, "conflicts": data.get("conflicts", [])}, indent=2))
             else:
                 print(f"Found {len(items)} memory entries:")
                 for item in items:
                     print(
-                        f"- {item['id']} [{item['status']}] ({item['type']} | {item['priority']} | {item['source']}): "
+                        f"- {item['id']} [{item['status']}] ({item['type']} | {item['priority']} | "
+                        f"branch:{item.get('branch', 'main')} | {item['source']}): {item['title']}"
+                    )
+
+        elif args.command == "search":
+            data = load_memory(ws)
+            ranked = search_memory_entries(
+                data.get("entries", []),
+                query=args.query,
+                file_hint=args.file,
+                branch=args.branch,
+                top_k=args.top,
+            )
+            if args.json:
+                print(json.dumps({"results": ranked, "count": len(ranked)}, indent=2))
+            else:
+                print(f"Top {len(ranked)} relevant memory entries:")
+                for item in ranked:
+                    print(
+                        f"- [score:{item['relevance_score']}] {item['id']} ({item['type']} | {item['priority']}): "
                         f"{item['title']}"
                     )
+
+        elif args.command == "auto-git":
+            res = capture_git_context(
+                workspace_root=ws,
+                max_commits=args.commits,
+                source=args.source,
+                dry_run=args.dry_run,
+            )
+            if args.json:
+                print(json.dumps(res, indent=2))
+            else:
+                print(
+                    f"[GIT-CAPTURED] Branch '{res['branch']}' ({res['commits_included']} commits, "
+                    f"dirty={res['working_tree_dirty']}) -> {res['entry'].get('id', 'dry-run')}"
+                )
+
+        elif args.command == "check-stale":
+            data = load_memory(ws)
+            stale = detect_stale_file_references(ws, data.get("entries", []))
+            if args.json:
+                print(json.dumps({"stale_entries": stale, "count": len(stale)}, indent=2))
+            else:
+                if not stale:
+                    print("No stale file references detected in active memory entries.")
+                else:
+                    print(f"Detected {len(stale)} entry/entries with missing file references:")
+                    for s in stale:
+                        print(f"- {s['entry_id']} ({s['title']}): missing {s['missing_files']}")
 
         elif args.command == "compact":
             data = load_memory(ws)

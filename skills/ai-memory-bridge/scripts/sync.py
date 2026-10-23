@@ -191,6 +191,11 @@ def sync_workspace_memory(
             details={"compact": compact, "targets": targets or []},
             increment_revision=bool(compact),
         )
+        try:
+            from dashboard import generate_dashboard
+            generate_dashboard(workspace_root)
+        except Exception:
+            pass
 
     if not targets or targets == ["detected"]:
         resolved_targets = detect_workspace_agents(workspace_root)

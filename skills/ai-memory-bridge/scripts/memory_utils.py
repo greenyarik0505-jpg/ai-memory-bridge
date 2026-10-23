@@ -14,10 +14,13 @@ from __future__ import annotations
 import datetime as dt
 import difflib
 import hashlib
+import html
 import json
+import math
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import uuid
@@ -46,6 +49,7 @@ MEMORY_FILE_NAME = "memory.json"
 CONTEXT_MD_NAME = "context.md"
 DECISIONS_MD_NAME = "decisions.md"
 TASKS_MD_NAME = "tasks.md"
+DASHBOARD_HTML_NAME = "dashboard.html"
 HANDOFFS_DIR_NAME = "handoffs"
 BACKUPS_DIR_NAME = "backups"
 HISTORY_DIR_NAME = "history"
@@ -205,6 +209,27 @@ def generate_entry_id(prefix: str = "mem") -> str:
     stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d%H%M%S")
     short_rand = uuid.uuid4().hex[:8]
     return f"{prefix}_{stamp}_{short_rand}"
+
+
+def get_current_git_branch(workspace_root: Path) -> str:
+    """Detect current Git branch in workspace_root, falling back to 'main' if unavailable."""
+    try:
+        proc = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=str(workspace_root),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=3,
+        )
+        if proc.returncode == 0:
+            branch = proc.stdout.strip()
+            if branch and branch != "HEAD":
+                return branch
+    except Exception:
+        pass
+    return "main"
 
 
 def check_no_symlinks_in_chain(target: Path, stop_at: Path) -> None:
@@ -450,6 +475,8 @@ def migrate_schema(data: dict[str, Any]) -> dict[str, Any]:
         entry.setdefault("status", "active")
         entry.setdefault("priority", "medium")
         entry.setdefault("tags", [])
+        entry.setdefault("branch", "main")
+        entry.setdefault("files", [])
         entry.setdefault("supersedes", None)
         entry.setdefault("superseded_by", None)
         entry["content_hash"] = compute_content_hash(entry["type"], entry["title"], entry["content"])
@@ -689,17 +716,192 @@ def detect_conflicts_for_entry(
     return detected
 
 
-def sort_entries_by_priority(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Sort entries by priority weight (descending) then updated_at (descending)."""
-    return sorted(
-        entries,
-        key=lambda e: (
+def sort_entries_by_priority(entries: list[dict[str, Any]], preferred_branch: str | None = None) -> list[dict[str, Any]]:
+    """Sort entries by branch affinity (if preferred_branch set for tasks), priority weight, and updated_at."""
+    def _sort_key(e: dict[str, Any]) -> tuple[int, int, str, str]:
+        branch_Match = 1
+        if preferred_branch and e.get("type") in ("task_pending", "next_step"):
+            branch_Match = 2 if e.get("branch", "main") == preferred_branch else 0
+        return (
+            branch_Match,
             PRIORITY_WEIGHTS.get(str(e.get("priority", "medium")), 2),
             str(e.get("updated_at", "")),
             str(e.get("id", "")),
+        )
+
+    return sorted(entries, key=_sort_key, reverse=True)
+
+
+def search_memory_entries(
+    entries: list[dict[str, Any]],
+    query: str = "",
+    file_hint: str = "",
+    branch: str = "",
+    include_archived: bool = False,
+    top_k: int = 10,
+) -> list[dict[str, Any]]:
+    """Rank and return memory entries using BM25-inspired field weighting, file path affinity, and priority."""
+    candidates = [
+        e for e in entries
+        if include_archived or e.get("status") in ("active", "conflicted", "completed")
+    ]
+    if not candidates:
+        return []
+
+    q_tokens = tokenize_topic(query) if query else set()
+    file_norm = file_hint.replace("\\", "/").strip().lower()
+    file_stem = Path(file_norm).stem.lower() if file_norm else ""
+    file_tokens = tokenize_topic(file_norm.replace("/", " ").replace(".", " ")) if file_norm else set()
+
+    # Document frequency across candidate corpus
+    doc_freq: dict[str, int] = {}
+    all_search_tokens = q_tokens | file_tokens
+    for entry in candidates:
+        entry_tokens = tokenize_topic(
+            f"{entry.get('title', '')} {entry.get('content', '')} {' '.join(entry.get('tags', []))}"
+        )
+        for tok in all_search_tokens:
+            if tok in entry_tokens:
+                doc_freq[tok] = doc_freq.get(tok, 0) + 1
+
+    n_docs = max(1, len(candidates))
+    scored: list[tuple[float, dict[str, Any]]] = []
+
+    for entry in candidates:
+        title_str = str(entry.get("title", "")).lower()
+        content_str = str(entry.get("content", "")).lower()
+        tags_list = [str(t).lower() for t in entry.get("tags", [])]
+        files_list = [str(f).replace("\\", "/").lower() for f in entry.get("files", [])]
+
+        title_tokens = tokenize_topic(title_str)
+        content_tokens = tokenize_topic(content_str)
+        tag_tokens = tokenize_topic(" ".join(tags_list))
+
+        score = 0.0
+
+        # 1. Query token BM25-style weighted matching
+        for tok in q_tokens:
+            idf = math.log(1.0 + (n_docs - doc_freq.get(tok, 0) + 0.5) / (doc_freq.get(tok, 0) + 0.5))
+            if tok in title_tokens:
+                score += 3.5 * idf
+            elif tok in title_str:
+                score += 2.0 * idf
+            if tok in tag_tokens:
+                score += 3.0 * idf
+            if tok in content_tokens:
+                score += 1.5 * idf
+            elif tok in content_str:
+                score += 0.8 * idf
+
+        # Exact substring phrase bonus
+        if query and query.strip().lower() in f"{title_str} {content_str}":
+            score += 4.0
+
+        # 2. File hint affinity matching
+        if file_norm:
+            if any(file_norm in f or f in file_norm for f in files_list if f):
+                score += 6.0
+            if file_norm in content_str or file_norm in title_str:
+                score += 5.0
+            elif file_stem and len(file_stem) > 2 and (file_stem in title_str or file_stem in content_str):
+                score += 3.5
+            for ftok in file_tokens:
+                if ftok in title_tokens or ftok in tag_tokens:
+                    score += 1.5
+                elif ftok in content_tokens:
+                    score += 0.75
+
+        # 3. Branch affinity bonus
+        if branch:
+            entry_branch = str(entry.get("branch", "main"))
+            if entry_branch == branch:
+                score += 1.5 if not (q_tokens or file_norm) else 0.75
+            elif not (q_tokens or file_norm) and entry.get("type") in ("task_pending", "next_step"):
+                continue
+
+        if (q_tokens or file_norm) and score <= 0.0:
+            continue
+
+        # 4. Priority multiplier
+        prio_mult = {
+            "critical": 1.35,
+            "high": 1.20,
+            "medium": 1.00,
+            "low": 0.85,
+        }.get(str(entry.get("priority", "medium")), 1.0)
+
+        final_score = round((score if score > 0 else 1.0) * prio_mult, 3)
+        entry_with_score = dict(entry)
+        entry_with_score["relevance_score"] = final_score
+        scored.append((final_score, entry_with_score))
+
+    scored.sort(
+        key=lambda pair: (
+            pair[0],
+            PRIORITY_WEIGHTS.get(str(pair[1].get("priority", "medium")), 2),
+            str(pair[1].get("updated_at", "")),
         ),
         reverse=True,
     )
+    return [item for _, item in scored[: max(1, top_k)]]
+
+
+FILE_REF_PATTERN = re.compile(
+    r"(?:`([A-Za-z0-9_.\-]+(?:/[A-Za-z0-9_.\-]+)+\.[A-Za-z0-9]{1,8})`"
+    r"|\b((?:src|app|lib|skills|tests|docs|scripts|examples|pkg|cmd|internal|components|pages|api)"
+    r"/[A-Za-z0-9_.\-/]+\.[A-Za-z0-9]{1,8})\b)"
+)
+
+
+def extract_file_references(text: str) -> list[str]:
+    """Extract plausible relative workspace file paths mentioned in entry text."""
+    if not text:
+        return []
+    found: list[str] = []
+    for match in FILE_REF_PATTERN.finditer(text):
+        candidate = (match.group(1) or match.group(2) or "").strip()
+        if not candidate or candidate.startswith((".ai-memory/", "http://", "https://")):
+            continue
+        if ".." in candidate or "*" in candidate or "{{" in candidate:
+            continue
+        if candidate not in found:
+            found.append(candidate)
+    return found
+
+
+def detect_stale_file_references(
+    workspace_root: Path,
+    entries: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Detect active memory entries that reference workspace files that no longer exist."""
+    workspace_root = workspace_root.resolve()
+    stale_findings: list[dict[str, Any]] = []
+    for entry in entries:
+        if entry.get("status") not in ("active", "conflicted"):
+            continue
+        blob = f"{entry.get('title', '')}\n{entry.get('content', '')}"
+        refs = list(entry.get("files", []))
+        for extracted in extract_file_references(blob):
+            if extracted not in refs:
+                refs.append(extracted)
+        missing: list[str] = []
+        for rel_ref in refs:
+            try:
+                resolved = safe_resolve_path(workspace_root, rel_ref, allow_outside=False)
+                if not resolved.exists():
+                    missing.append(rel_ref)
+            except SecurityViolationError:
+                continue
+        if missing:
+            stale_findings.append(
+                {
+                    "entry_id": entry["id"],
+                    "type": entry.get("type", "unknown"),
+                    "title": entry.get("title", ""),
+                    "missing_files": missing,
+                }
+            )
+    return stale_findings
 
 
 def estimate_tokens(text: str) -> int:
@@ -952,6 +1154,7 @@ def get_memory_paths(workspace_root: Path) -> dict[str, Path]:
         "context_md": safe_resolve_path(workspace_root, f"{MEMORY_DIR_NAME}/{CONTEXT_MD_NAME}"),
         "decisions_md": safe_resolve_path(workspace_root, f"{MEMORY_DIR_NAME}/{DECISIONS_MD_NAME}"),
         "tasks_md": safe_resolve_path(workspace_root, f"{MEMORY_DIR_NAME}/{TASKS_MD_NAME}"),
+        "dashboard_html": safe_resolve_path(workspace_root, f"{MEMORY_DIR_NAME}/{DASHBOARD_HTML_NAME}"),
         "handoffs_dir": safe_resolve_path(workspace_root, f"{MEMORY_DIR_NAME}/{HANDOFFS_DIR_NAME}"),
         "backups_dir": safe_resolve_path(workspace_root, f"{MEMORY_DIR_NAME}/{BACKUPS_DIR_NAME}"),
         "history_dir": safe_resolve_path(workspace_root, f"{MEMORY_DIR_NAME}/{HISTORY_DIR_NAME}"),

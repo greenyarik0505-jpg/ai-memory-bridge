@@ -32,6 +32,7 @@ from memory_utils import (  # noqa: E402
     MEMORY_DIR_NAME,
     MemoryBridgeError,
     check_no_symlinks_in_chain,
+    detect_stale_file_references,
     get_memory_paths,
     load_memory,
     scan_for_prompt_injection,
@@ -71,6 +72,8 @@ def run_diagnostics(workspace_root: Path) -> dict[str, Any]:
         "restore.py",
         "doctor.py",
         "backup.py",
+        "scan.py",
+        "dashboard.py",
         "memory_utils.py",
     )
     missing_scripts = [s for s in required_scripts if not (SCRIPT_DIR / s).exists()]
@@ -189,6 +192,26 @@ def run_diagnostics(workspace_root: Path) -> dict[str, Any]:
                         "FAIL",
                         f"Found {secret_count} potential secret(s) and {injection_count} injection pattern(s) in memory.json!",
                         "Inspect and sanitize `.ai-memory/memory.json` immediately.",
+                    )
+                )
+
+            # Stale file reference drift check
+            stale_refs = detect_stale_file_references(workspace_root, entries)
+            if not stale_refs:
+                checks.append(
+                    _make_check(
+                        "Stale File Reference Check",
+                        "PASS",
+                        "All workspace file paths referenced in active memory entries exist.",
+                    )
+                )
+            else:
+                checks.append(
+                    _make_check(
+                        "Stale File Reference Check",
+                        "WARN",
+                        f"{len(stale_refs)} active entry/entries reference moved or deleted files.",
+                        "Run `python scripts/capture.py check-stale` and supersede outdated entries.",
                     )
                 )
 

@@ -156,6 +156,11 @@ Stores and indexes every critical dimension of a software project inside `.ai-me
 - **Automatic Conflict Detection**: Detects when two agents record competing technology choices (e.g., `PostgreSQL` vs `MongoDB`, `REST` vs `GraphQL`) or contradictory directives on the same topic without superseding, flagging both entries as `conflicted` until resolved.
 - **Token-Budget Compaction**: Condenses older session summaries into a rolled-up digest and archives low-priority historical items while strictly preserving `critical` entries.
 - **Versioned History & Rollback**: Every write appends an audit event to `.ai-memory/history/events.jsonl` and saves a revision snapshot (`rev_00001.json`, `rev_00002.json`, ...) that can be previewed and restored with `restore.py`.
+- **1-Second Codebase Auto-Scanner (`scan.py`)**: Automatically inspects `package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `pubspec.yaml`, `Dockerfile`, and directory structure to populate initial stack decisions and build/test commands.
+- **BM25 + File-Affinity Relevance Search (`capture.py search`)**: Retrieves the top-$K$ most relevant architectural decisions and past bug fixes for the exact file currently being edited (`--file src/payments/worker.py --query "retry"`).
+- **Stale Memory & File Drift Detection (`check-stale` & `doctor.py`)**: Automatically detects when active memory entries reference project files that were later moved or deleted.
+- **Git Branch & Commit Auto-Capture (`capture.py auto-git`)**: Extracts active branch, recent commit history, and modified working-tree files directly from Git, and prioritizes branch-specific tasks when switching branches.
+- **Offline Interactive HTML Dashboard (`dashboard.py`)**: Generates a zero-dependency, XSS-safe visual explorer at `.ai-memory/dashboard.html` with live search, category/branch filters, conflict alerts, and audit history.
 
 ### 3. Seamless Cross-Agent Handoff
 - Generates a self-contained handoff packet in `.ai-memory/handoffs/handoff-<agent>.md`.

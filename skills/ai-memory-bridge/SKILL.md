@@ -40,15 +40,18 @@ Goal: maintain a single, verified, local-first source of truth in `.ai-memory/` 
 
 ## Core Workflows
 
-### Workflow 1: Initialize or Check Project Memory
-*Triggers: First time using memory in a repo, or user asks "Initialize project memory" / "Check memory health".*
+### Workflow 1: Initialize, Auto-Scan Codebase, or Check Health
+*Triggers: First time using memory in a repo, or user asks "Remember this project", "Scan this project", "Check memory health".*
 
 ```bash
+# Initialize .ai-memory/ and auto-scan repository manifests, stack, and build commands in 1s
 python "<SKILL_DIR>/scripts/init.py" --workspace "."
+python "<SKILL_DIR>/scripts/scan.py" --workspace "."
 python "<SKILL_DIR>/scripts/doctor.py" --workspace "."
 ```
 
-- Creates `.ai-memory/` (`memory.json`, `context.md`, `decisions.md`, `tasks.md`, `handoffs/`, `backups/`, `history/`) and adds `.ai-memory/` to `.gitignore`.
+- Creates `.ai-memory/` (`memory.json`, `context.md`, `decisions.md`, `tasks.md`, `dashboard.html`, `handoffs/`, `backups/`, `history/`) and adds `.ai-memory/` to `.gitignore`.
+- `scan.py` automatically detects Python/Node.js/Rust/Go/Flutter manifests, frameworks, directory layout, and test/build scripts and records them into memory.
 - If the user explicitly requests automatic lifecycle hooks (supported in Claude Code and Google Antigravity):
   ```bash
   python "<SKILL_DIR>/scripts/init.py" --workspace "." --enable-hooks --agent claude-code
@@ -122,16 +125,25 @@ python "<SKILL_DIR>/scripts/doctor.py" --workspace "."
    - Which target rule file was updated non-destructively (e.g., `AGENTS.md` or `.cursor/rules/ai-memory-bridge.mdc`).
    - Exact instructions on how to continue in the target agent.
 
-### Workflow 4: Resume Work Where Another Agent Stopped
-*Triggers: "Continue where Claude Code stopped", "Resume from project memory", "What is our current progress?"*
+### Workflow 4: Resume Work, Search Relevant Context, or Capture Git Progress
+*Triggers: "Continue where Claude Code stopped", "Search memory for payment retry", "Save our Git progress", "Open memory dashboard".*
 
 1. Read `.ai-memory/context.md`, `.ai-memory/tasks.md`, and `.ai-memory/decisions.md` (or the latest `.ai-memory/handoffs/handoff-*.md`).
-2. Check for any unresolved conflicts or high-priority pending tasks:
+2. Search memory by BM25 relevance and file affinity, or check for stale file references and conflicts:
    ```bash
-   python "<SKILL_DIR>/scripts/capture.py" list --workspace "." --status conflicted
-   python "<SKILL_DIR>/scripts/capture.py" list --workspace "." --type next_step
+   # Ranked BM25 + file-affinity search for the file currently being edited
+   python "<SKILL_DIR>/scripts/capture.py" search --workspace "." --file "src/payments/worker.py" --query "retry backoff" --top 5
+
+   # Auto-capture recent Git commits, active branch, and modified files into session memory
+   python "<SKILL_DIR>/scripts/capture.py" auto-git --workspace "." --commits 5 --source claude-code
+
+   # Check for stale file references (files moved or deleted since entry was recorded)
+   python "<SKILL_DIR>/scripts/capture.py" check-stale --workspace "."
+
+   # Generate offline visual HTML dashboard (.ai-memory/dashboard.html)
+   python "<SKILL_DIR>/scripts/dashboard.py" --workspace "."
    ```
-3. Summarize the active state (last agent, completed tasks, active decisions, and immediate next steps) and proceed with the work.
+3. Summarize the active state (last agent, branch tasks, active decisions, and immediate next steps) and proceed with the work.
 
 ### Workflow 5: Synchronize Rules & Compact Context
 *Triggers: "Sync project memory", "Update all agent rules", "Compact memory".*
