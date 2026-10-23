@@ -190,8 +190,76 @@ class AdvancedFeaturesTests(unittest.TestCase):
 
         html_text = dash_path.read_text(encoding="utf-8")
         self.assertIn("AI Memory Bridge", html_text)
+        self.assertIn("langSelect", html_text)
+        self.assertIn("Русский", html_text)
+        self.assertIn("Українська", html_text)
+        self.assertIn("中文", html_text)
         self.assertNotIn("<script>alert('xss')</script>", html_text)
         self.assertIn("&lt;script&gt;alert(&#x27;xss&#x27;)&lt;/script&gt;", html_text)
+
+    def test_07_multilingual_search_dedup_and_conflict(self) -> None:
+        initialize_workspace(self.ws, project_name="multilingual-test")
+
+        # 1. Russian entry + deduplication
+        r1 = add_memory_entry(
+            self.ws,
+            entry_type="decision",
+            title="Кэширование сессий через Redis",
+            content="Обязательно использовать Redis Cluster для хранения пользовательских сессий.",
+            priority="high",
+            source="claude-code",
+        )
+        self.assertEqual(r1["status"], "added")
+
+        r1_dup = add_memory_entry(
+            self.ws,
+            entry_type="decision",
+            title="Кэширование сессий через Redis",
+            content="Обязательно использовать Redis Cluster для хранения пользовательских сессий.",
+            priority="high",
+            source="cursor",
+        )
+        self.assertEqual(r1_dup["status"], "deduplicated")
+
+        # 2. Russian conflict detection (polarity inversion on same topic)
+        r1_conflict = add_memory_entry(
+            self.ws,
+            entry_type="decision",
+            title="Кэширование сессий через Redis",
+            content="Запрещено использовать Redis Cluster для хранения пользовательских сессий.",
+            priority="high",
+            source="codex",
+        )
+        self.assertEqual(r1_conflict["status"], "added")
+        self.assertEqual(r1_conflict["entry"]["status"], "conflicted")
+        self.assertEqual(len(r1_conflict["conflicts_detected"]), 1)
+
+        # 3. Ukrainian & Chinese entries + BM25 search
+        add_memory_entry(
+            self.ws,
+            entry_type="goal",
+            title="Безпека платіжного шлюзу",
+            content="Забезпечити перевірку підписів вебхуків у модулі `src/payments/ukr_gateway.py`.",
+            priority="critical",
+            source="antigravity",
+        )
+        add_memory_entry(
+            self.ws,
+            entry_type="constraint",
+            title="数据库连接池配置",
+            content="生产环境必须使用 PostgreSQL 连接池，禁止使用单连接模式。",
+            priority="high",
+            source="gemini-cli",
+        )
+
+        data = load_memory(self.ws)
+        uk_hits = search_memory_entries(data["entries"], query="перевірку підписів вебхуків", top_k=2)
+        self.assertGreaterEqual(len(uk_hits), 1)
+        self.assertEqual(uk_hits[0]["title"], "Безпека платіжного шлюзу")
+
+        zh_hits = search_memory_entries(data["entries"], query="数据库连接池", top_k=2)
+        self.assertGreaterEqual(len(zh_hits), 1)
+        self.assertEqual(zh_hits[0]["title"], "数据库连接池配置")
 
 
 if __name__ == "__main__":

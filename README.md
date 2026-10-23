@@ -16,6 +16,8 @@
 
 [Quick Start](#-quick-start) · [Installation](#-installation) · [How It Works](#-how-it-works) · [Supported Agents](#-supported-agents) · [Examples](#-real-reproducible-examples) · [Security](#-security)
 
+🌐 **Languages:** **English** · [Русский](./docs/i18n/README.ru.md) · [Українська](./docs/i18n/README.uk.md) · [简体中文](./docs/i18n/README.zh-CN.md) · [Español](./docs/i18n/README.es.md)
+
 </div>
 
 ---

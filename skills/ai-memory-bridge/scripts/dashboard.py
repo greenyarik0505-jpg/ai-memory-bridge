@@ -255,6 +255,16 @@ def render_dashboard_html(workspace_root: Path, data: dict[str, Any]) -> str:
       color: #fff;
       background: rgba(56, 189, 248, 0.15);
     }}
+    .lang-select {{
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 0.35rem 0.65rem;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      margin-bottom: 0.4rem;
+      cursor: pointer;
+    }}
     .entry-card {{
       background: var(--surface);
       border: 1px solid var(--border);
@@ -315,33 +325,43 @@ def render_dashboard_html(workspace_root: Path, data: dict[str, Any]) -> str:
     <header>
       <div>
         <h1>🌉 AI Memory Bridge — {proj_name}</h1>
-        <div class="subtitle">One Memory. Every AI Agent. Local-First Project Context Dashboard</div>
+        <div class="subtitle" data-i18n="subtitle">One Memory. Every AI Agent. Local-First Project Context Dashboard</div>
       </div>
       <div class="subtitle" style="text-align:right">
-        <div>Branch: <strong>{current_branch}</strong> | Revision: <strong>#{rev}</strong></div>
-        <div>Last Updated: {updated_at}</div>
+        <div>
+          <select id="langSelect" class="lang-select" aria-label="Language">
+            <option value="en">🌐 English (EN)</option>
+            <option value="ru">🌐 Русский (RU)</option>
+            <option value="uk">🌐 Українська (UK)</option>
+            <option value="zh">🌐 中文 (ZH)</option>
+            <option value="es">🌐 Español (ES)</option>
+            <option value="de">🌐 Deutsch (DE)</option>
+          </select>
+        </div>
+        <div><span data-i18n="branch">Branch</span>: <strong>{current_branch}</strong> | <span data-i18n="revision">Revision</span>: <strong>#{rev}</strong></div>
+        <div><span data-i18n="last_updated">Last Updated</span>: {updated_at}</div>
       </div>
     </header>
 
     <section class="kpi-grid">
       <div class="kpi-card">
-        <div class="kpi-label">Active Entries</div>
+        <div class="kpi-label" data-i18n="kpi_active">Active Entries</div>
         <div class="kpi-value">{len(active_entries)}</div>
       </div>
       <div class="kpi-card">
-        <div class="kpi-label">Architectural Decisions</div>
+        <div class="kpi-label" data-i18n="kpi_decisions">Architectural Decisions</div>
         <div class="kpi-value">{decisions_count}</div>
       </div>
       <div class="kpi-card">
-        <div class="kpi-label">Pending Tasks &amp; Steps</div>
+        <div class="kpi-label" data-i18n="kpi_pending">Pending Tasks &amp; Steps</div>
         <div class="kpi-value">{pending_count}</div>
       </div>
       <div class="kpi-card">
-        <div class="kpi-label">Active Context Size</div>
+        <div class="kpi-label" data-i18n="kpi_tokens">Active Context Size</div>
         <div class="kpi-value">~{est_tokens} tok</div>
       </div>
       <div class="kpi-card">
-        <div class="kpi-label">Unresolved Conflicts</div>
+        <div class="kpi-label" data-i18n="kpi_conflicts">Unresolved Conflicts</div>
         <div class="kpi-value" style="color: {'#ef4444' if unresolved_conflicts else '#10b981'}">{len(unresolved_conflicts)}</div>
       </div>
     </section>
@@ -351,30 +371,30 @@ def render_dashboard_html(workspace_root: Path, data: dict[str, Any]) -> str:
 
     <section class="controls">
       <input type="text" id="searchInput" class="search-input" placeholder="Search entries by title, content, tag, or agent..." />
-      <button class="filter-btn active" data-filter="all">All ({len(all_entries)})</button>
-      <button class="filter-btn" data-filter="active-only">Active Only ({len(active_entries)})</button>
-      <button class="filter-btn" data-filter="goal">Goals</button>
-      <button class="filter-btn" data-filter="decision">Decisions</button>
-      <button class="filter-btn" data-filter="task_pending">Pending Tasks</button>
-      <button class="filter-btn" data-filter="next_step">Next Steps</button>
-      <button class="filter-btn" data-filter="constraint">Constraints</button>
-      <button class="filter-btn" data-filter="bug_fix">Bug Fixes</button>
+      <button class="filter-btn active" data-filter="all"><span data-i18n="filter_all">All</span> ({len(all_entries)})</button>
+      <button class="filter-btn" data-filter="active-only"><span data-i18n="filter_active">Active Only</span> ({len(active_entries)})</button>
+      <button class="filter-btn" data-filter="goal" data-i18n="filter_goal">Goals</button>
+      <button class="filter-btn" data-filter="decision" data-i18n="filter_decision">Decisions</button>
+      <button class="filter-btn" data-filter="task_pending" data-i18n="filter_pending">Pending Tasks</button>
+      <button class="filter-btn" data-filter="next_step" data-i18n="filter_next">Next Steps</button>
+      <button class="filter-btn" data-filter="constraint" data-i18n="filter_constraint">Constraints</button>
+      <button class="filter-btn" data-filter="bug_fix" data-i18n="filter_bug">Bug Fixes</button>
     </section>
 
     <main id="entriesContainer">
-      {"".join(cards_html_list) if cards_html_list else '<p style="color:var(--muted)">No memory entries recorded yet.</p>'}
+      {"".join(cards_html_list) if cards_html_list else '<p style="color:var(--muted)" data-i18n="empty_state">No memory entries recorded yet.</p>'}
     </main>
 
     <section class="history-section">
-      <h2>Recent Audit History (`.ai-memory/history/events.jsonl`)</h2>
+      <h2 data-i18n="audit_title">Recent Audit History (`.ai-memory/history/events.jsonl`)</h2>
       <table>
         <thead>
           <tr>
-            <th>Rev</th>
-            <th>Action</th>
-            <th>Source Agent</th>
-            <th>Timestamp</th>
-            <th>Details</th>
+            <th data-i18n="th_rev">Rev</th>
+            <th data-i18n="th_action">Action</th>
+            <th data-i18n="th_agent">Source Agent</th>
+            <th data-i18n="th_time">Timestamp</th>
+            <th data-i18n="th_details">Details</th>
           </tr>
         </thead>
         <tbody>
@@ -386,9 +406,119 @@ def render_dashboard_html(workspace_root: Path, data: dict[str, Any]) -> str:
 
   <script>
     const searchInput = document.getElementById('searchInput');
+    const langSelect = document.getElementById('langSelect');
     const buttons = document.querySelectorAll('.filter-btn');
     const cards = document.querySelectorAll('.entry-card');
     let currentFilter = 'all';
+
+    const I18N = {{
+      en: {{
+        subtitle: "One Memory. Every AI Agent. Local-First Project Context Dashboard",
+        branch: "Branch", revision: "Revision", last_updated: "Last Updated",
+        kpi_active: "Active Entries", kpi_decisions: "Architectural Decisions",
+        kpi_pending: "Pending Tasks & Steps", kpi_tokens: "Active Context Size",
+        kpi_conflicts: "Unresolved Conflicts",
+        search_placeholder: "Search entries by title, content, tag, or agent...",
+        filter_all: "All", filter_active: "Active Only", filter_goal: "Goals",
+        filter_decision: "Decisions", filter_pending: "Pending Tasks",
+        filter_next: "Next Steps", filter_constraint: "Constraints", filter_bug: "Bug Fixes",
+        empty_state: "No memory entries recorded yet.",
+        audit_title: "Recent Audit History (.ai-memory/history/events.jsonl)",
+        th_rev: "Rev", th_action: "Action", th_agent: "Source Agent", th_time: "Timestamp", th_details: "Details"
+      }},
+      ru: {{
+        subtitle: "Единая память. Любой ИИ-агент. Локальная панель контекста проекта",
+        branch: "Ветка", revision: "Ревизия", last_updated: "Обновлено",
+        kpi_active: "Активные записи", kpi_decisions: "Архитектурные решения",
+        kpi_pending: "Незавершённые задачи", kpi_tokens: "Размер контекста",
+        kpi_conflicts: "Конфликты",
+        search_placeholder: "Поиск по заголовку, тексту, тегам или агенту...",
+        filter_all: "Все", filter_active: "Активные", filter_goal: "Цели",
+        filter_decision: "Решения", filter_pending: "В работе",
+        filter_next: "След. шаги", filter_constraint: "Ограничения", filter_bug: "Исправления",
+        empty_state: "Записей в памяти пока нет.",
+        audit_title: "Журнал изменений (.ai-memory/history/events.jsonl)",
+        th_rev: "Рев.", th_action: "Действие", th_agent: "ИИ-агент", th_time: "Время", th_details: "Детали"
+      }},
+      uk: {{
+        subtitle: "Єдина пам'ять. Будь-який ШІ-агент. Локальна панель контексту проєкту",
+        branch: "Гілка", revision: "Ревізія", last_updated: "Оновлено",
+        kpi_active: "Активні записи", kpi_decisions: "Архітектурні рішення",
+        kpi_pending: "Незавершені задачі", kpi_tokens: "Розмір контексту",
+        kpi_conflicts: "Конфлікти",
+        search_placeholder: "Пошук за заголовком, текстом, тегами або агентом...",
+        filter_all: "Усі", filter_active: "Активні", filter_goal: "Цілі",
+        filter_decision: "Рішення", filter_pending: "В роботі",
+        filter_next: "Наст. кроки", filter_constraint: "Обмеження", filter_bug: "Виправлення",
+        empty_state: "Записів у пам'яті ще немає.",
+        audit_title: "Журнал змін (.ai-memory/history/events.jsonl)",
+        th_rev: "Рев.", th_action: "Дія", th_agent: "ШІ-агент", th_time: "Час", th_details: "Деталі"
+      }},
+      zh: {{
+        subtitle: "统一记忆 · 适配所有 AI 编程代理 · 本地优先项目上下文面板",
+        branch: "分支", revision: "版本", last_updated: "最后更新",
+        kpi_active: "有效记忆条目", kpi_decisions: "架构决策",
+        kpi_pending: "待办任务与下一步", kpi_tokens: "上下文 Token 估算",
+        kpi_conflicts: "未解决冲突",
+        search_placeholder: "按标题、内容、标签或代理搜索记忆...",
+        filter_all: "全部", filter_active: "仅有效", filter_goal: "项目目标",
+        filter_decision: "架构决策", filter_pending: "待办任务",
+        filter_next: "下一步", filter_constraint: "技术约束", filter_bug: "缺陷修复",
+        empty_state: "暂无记忆条目。",
+        audit_title: "最近审计日志 (.ai-memory/history/events.jsonl)",
+        th_rev: "版本", th_action: "操作", th_agent: "来源代理", th_time: "时间戳", th_details: "详情"
+      }},
+      es: {{
+        subtitle: "Una Memoria. Todos los Agentes IA. Panel de Contexto Local",
+        branch: "Rama", revision: "Revisión", last_updated: "Actualizado",
+        kpi_active: "Entradas Activas", kpi_decisions: "Decisiones de Arquitectura",
+        kpi_pending: "Tareas Pendientes", kpi_tokens: "Tamaño del Contexto",
+        kpi_conflicts: "Conflictos Activos",
+        search_placeholder: "Buscar por título, contenido, etiqueta o agente...",
+        filter_all: "Todas", filter_active: "Solo Activas", filter_goal: "Objetivos",
+        filter_decision: "Decisiones", filter_pending: "Pendientes",
+        filter_next: "Siguientes Pasos", filter_constraint: "Restricciones", filter_bug: "Errores Corregidos",
+        empty_state: "Aún no hay entradas registradas.",
+        audit_title: "Historial de Auditoría (.ai-memory/history/events.jsonl)",
+        th_rev: "Rev", th_action: "Acción", th_agent: "Agente", th_time: "Fecha", th_details: "Detalles"
+      }},
+      de: {{
+        subtitle: "Ein Gedächtnis. Jeder KI-Agent. Lokales Projekt-Kontext-Dashboard",
+        branch: "Branch", revision: "Revision", last_updated: "Aktualisiert",
+        kpi_active: "Aktive Einträge", kpi_decisions: "Architekturentscheidungen",
+        kpi_pending: "Offene Aufgaben", kpi_tokens: "Kontextgröße",
+        kpi_conflicts: "Ungelöste Konflikte",
+        search_placeholder: "Einträge nach Titel, Inhalt, Tag oder Agent durchsuchen...",
+        filter_all: "Alle", filter_active: "Nur Aktive", filter_goal: "Ziele",
+        filter_decision: "Entscheidungen", filter_pending: "Offene Aufgaben",
+        filter_next: "Nächste Schritte", filter_constraint: "Einschränkungen", filter_bug: "Bugfixes",
+        empty_state: "Noch keine Einträge vorhanden.",
+        audit_title: "Versionsverlauf (.ai-memory/history/events.jsonl)",
+        th_rev: "Rev", th_action: "Aktion", th_agent: "Agent", th_time: "Zeitstempel", th_details: "Details"
+      }}
+    }};
+
+    function setLanguage(lang) {{
+      const dict = I18N[lang] || I18N.en;
+      document.documentElement.lang = lang;
+      document.querySelectorAll('[data-i18n]').forEach(el => {{
+        const key = el.getAttribute('data-i18n');
+        if (dict[key]) el.textContent = dict[key];
+      }});
+      if (dict.search_placeholder) {{
+        searchInput.placeholder = dict.search_placeholder;
+      }}
+      try {{ localStorage.setItem('ai_memory_bridge_lang', lang); }} catch (e) {{}}
+    }}
+
+    langSelect.addEventListener('change', (e) => setLanguage(e.target.value));
+    const savedLang = (() => {{
+      try {{ return localStorage.getItem('ai_memory_bridge_lang'); }} catch (e) {{ return null; }}
+    }})();
+    const browserLang = (navigator.language || 'en').slice(0, 2).toLowerCase();
+    const initialLang = savedLang || (I18N[browserLang] ? browserLang : 'en');
+    langSelect.value = initialLang;
+    setLanguage(initialLang);
 
     function applyFilters() {{
       const q = searchInput.value.toLowerCase().trim();

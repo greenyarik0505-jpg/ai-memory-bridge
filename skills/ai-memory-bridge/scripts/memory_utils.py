@@ -171,20 +171,38 @@ ANTONYM_GROUPS: list[set[str]] = [
 ]
 
 NEGATION_PATTERNS = re.compile(
-    r"\b(?:never|do\s+not|don't|must\s+not|forbid|forbidden|prohibit|avoid|disallow|disable)\b",
-    re.IGNORECASE,
+    r"(?i)(?:\b(?:never|do\s+not|don't|must\s+not|forbid|forbidden|prohibit|avoid|disallow|disable|"
+    r"никогда|нельзя|запрещено|не\s+использовать|избегать|"
+    r"ніколи|не\s+можна|заборонено|не\s+використовувати|"
+    r"nunca|jamás|prohibido|evitar|"
+    r"niemals|verboten|nicht\s+verwenden)\b|禁止|不要|严禁|不得)",
 )
 AFFIRMATION_PATTERNS = re.compile(
-    r"\b(?:always|must|require|required|mandatory|enforce|enable|exclusively)\b",
-    re.IGNORECASE,
+    r"(?i)(?:\b(?:always|must|require|required|mandatory|enforce|enable|exclusively|"
+    r"всегда|обязательно|должен|только|исключительно|"
+    r"завжди|обов'язково|тільки|виключно|"
+    r"siempre|obligatorio|debe|"
+    r"immer|zwingend|muss)\b|必须|始终|总是|强制)",
 )
 
 STOPWORDS = {
+    # English
     "a", "an", "the", "and", "or", "but", "for", "nor", "on", "at", "to", "from",
     "by", "with", "in", "of", "is", "are", "was", "were", "be", "been", "being",
     "use", "using", "used", "project", "should", "must", "will", "we", "our", "all",
     "this", "that", "these", "those", "as", "into", "over", "after", "before",
+    # Russian / Ukrainian
+    "и", "в", "во", "на", "с", "со", "по", "для", "от", "до", "из", "за", "или",
+    "но", "что", "как", "это", "все", "мы", "наш", "проекта", "проект", "использовать",
+    "та", "це", "як", "ми", "для", "від", "використовувати",
+    # Spanish / German / French
+    "el", "la", "los", "las", "de", "del", "en", "con", "por", "para", "una", "uno",
+    "der", "die", "das", "und", "in", "mit", "für", "von", "auf", "ist",
+    "le", "les", "des", "dans", "avec", "pour", "sur", "est",
 }
+
+CJK_RANGE_PATTERN = re.compile(r"[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]")
+UNICODE_WORD_PATTERN = re.compile(r"[^\W_]+(?:[-_][^\W_]+)*", re.UNICODE)
 
 
 class MemoryBridgeError(Exception):
@@ -542,9 +560,24 @@ def validate_memory_data(data: dict[str, Any]) -> None:
 
 
 def tokenize_topic(text: str) -> set[str]:
-    """Extract meaningful lowercase tokens for topic matching and conflict checks."""
-    words = re.findall(r"[a-z0-9][a-z0-9_\-]*", text.lower())
-    return {w for w in words if len(w) > 2 and w not in STOPWORDS}
+    """Extract meaningful lowercase tokens across Latin, Cyrillic, European, and CJK scripts."""
+    if not text:
+        return set()
+    lowered = text.lower()
+    words = UNICODE_WORD_PATTERN.findall(lowered)
+    tokens: set[str] = set()
+    for w in words:
+        if w in STOPWORDS:
+            continue
+        if CJK_RANGE_PATTERN.search(w):
+            # Add individual CJK characters and overlapping bigrams for accurate CJK matching
+            cjk_chars = [ch for ch in w if CJK_RANGE_PATTERN.match(ch)]
+            tokens.update(cjk_chars)
+            for idx in range(len(cjk_chars) - 1):
+                tokens.add(cjk_chars[idx] + cjk_chars[idx + 1])
+        elif len(w) > 2:
+            tokens.add(w)
+    return tokens
 
 
 def text_similarity(a: str, b: str) -> float:
