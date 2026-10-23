@@ -252,15 +252,6 @@ No. The skill runtime uses only the Python 3.10+ standard library. `npx skills a
 
 ---
 
-## 🗺️ Roadmap
-
-- [x] **v1.0.0**: Universal memory store (`v1.0.0`), 7-agent compatibility, secret/injection scanning, conflict detection, SHA-256 backups, and `SKILL.md` standard compliance.
-- [ ] **v1.1.0**: Optional Git branch-aware memory views (per-feature-branch task isolation + merge reconciliation).
-- [ ] **v1.2.0**: Optional local SQLite FTS5 indexing adapter for workspaces with >5,000 historical entries (using Python's built-in `sqlite3` stdlib module).
-- [ ] **v1.3.0**: Interactive HTML memory timeline export (`context-timeline.html`).
-
----
-
 ## 🤝 Contributing & License
 
 Contributions, bug reports, and new agent adapters are welcome! Please read [`CONTRIBUTING.md`](./CONTRIBUTING.md) before submitting a pull request.
