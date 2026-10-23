@@ -162,7 +162,12 @@ Stores and indexes every critical dimension of a software project inside `.ai-me
 - **BM25 + File-Affinity Relevance Search (`capture.py search`)**: Retrieves the top-$K$ most relevant architectural decisions and past bug fixes for the exact file currently being edited (`--file src/payments/worker.py --query "retry"`).
 - **Stale Memory & File Drift Detection (`check-stale` & `doctor.py`)**: Automatically detects when active memory entries reference project files that were later moved or deleted.
 - **Git Branch & Commit Auto-Capture (`capture.py auto-git`)**: Extracts active branch, recent commit history, and modified working-tree files directly from Git, and prioritizes branch-specific tasks when switching branches.
-- **Offline Interactive HTML Dashboard (`dashboard.py`)**: Generates a zero-dependency, XSS-safe visual explorer at `.ai-memory/dashboard.html` with live search, category/branch filters, conflict alerts, and audit history.
+- **Offline Interactive HTML Dashboard (`dashboard.py`)**: Generates a zero-dependency, XSS-safe visual explorer at `.ai-memory/dashboard.html` with live search, category/branch filters, conflict alerts,audit history, and instant `EN / RU / UK / ZH / ES / DE` language switching.
+- **Architecture & Constraint Guard (`guard.py`)**: Actively scans source code and dependency manifests (`package.json`, `requirements.txt`) against active `constraint` and `decision` entries in memory (e.g., forbidden libraries like `requests`/`sqlite3` or zero-dependency rules) and flags exact file/line violations.
+- **Test & Build Failure Watcher (`capture.py run-watch`)**: Wraps test/build commands (`python scripts/capture.py run-watch -- pytest`): automatically creates a high-priority `task_pending` when tests fail, and automatically marks the task completed + records a `bug_fix` entry once tests pass.
+- **Global Developer Profile (`~/.ai-memory-global/`)**: Save personal coding preferences once with `--global` and sync them across every new repository via `capture.py sync-global`.
+- **Memory Time-Travel Diff (`diff.py`)**: Compare any two memory revisions (`--from-rev N --to-rev M`) to inspect added entries, completed tasks, superseded decisions, and conflict changes after an agent session.
+- **1-Click PR Description, Changelog & Clipboard Exporter (`export.py`)**: Generates structured GitHub Pull Request summaries (`--format pr`), Keep-a-Changelog notes (`--format changelog`), or compact web-chat prompts (`--format compact`) with direct OS clipboard copy (`--clipboard`).
 
 ### 3. Seamless Cross-Agent Handoff
 - Generates a self-contained handoff packet in `.ai-memory/handoffs/handoff-<agent>.md`.

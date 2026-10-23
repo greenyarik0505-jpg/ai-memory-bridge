@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -33,6 +34,7 @@ from memory_utils import (  # noqa: E402
     VALID_PRIORITIES,
     VALID_STATUSES,
     MemoryBridgeError,
+    atomic_write_json,
     compact_memory,
     compute_content_hash,
     detect_conflicts_for_entry,
@@ -474,6 +476,279 @@ def capture_git_context(
     }
 
 
+def get_global_profile_path(global_dir: Path | str | None = None) -> Path:
+    """Resolve the path to the developer's global memory profile (~/.ai-memory-global/preferences.json)."""
+    if global_dir:
+        base = Path(global_dir).expanduser().resolve()
+    elif os.environ.get("AI_MEMORY_GLOBAL_DIR"):
+        base = Path(os.environ["AI_MEMORY_GLOBAL_DIR"]).expanduser().resolve()
+    else:
+        base = (Path.home() / ".ai-memory-global").resolve()
+    if base.exists() and base.is_symlink():
+        raise SecurityViolationError(f"Symlinked global profile directory rejected: {base}")
+    return base / "preferences.json"
+
+
+def save_global_entry(
+    entry_type: str,
+    title: str,
+    content: str,
+    priority: str = "high",
+    source: str = "manual",
+    tags: list[str] | None = None,
+    allow_redact_secrets: bool = False,
+    global_dir: Path | str | None = None,
+) -> dict[str, Any]:
+    """Save a cross-project developer preference or constraint into the global profile."""
+    if entry_type not in ("preference", "constraint", "decision"):
+        entry_type = "preference"
+    clean_title, clean_content, _ = _validate_and_clean_content(
+        title, content, allow_redact_secrets=allow_redact_secrets
+    )
+    prof_path = get_global_profile_path(global_dir)
+    if prof_path.exists():
+        if prof_path.is_symlink():
+            raise SecurityViolationError(f"Symlinked global profile file rejected: {prof_path}")
+        try:
+            prof_data = json.loads(prof_path.read_text(encoding="utf-8"))
+        except Exception:
+            prof_data = {"schema_version": "1.0.0", "entries": []}
+    else:
+        prof_data = {"schema_version": "1.0.0", "entries": []}
+
+    entries: list[dict[str, Any]] = prof_data.setdefault("entries", [])
+    c_hash = compute_content_hash(entry_type, clean_title, clean_content)
+    now = utc_now_iso()
+    merged_tags = sorted(set((tags or []) + ["global-profile"]))
+
+    for item in entries:
+        if item.get("content_hash") == c_hash or item.get("title", "").lower() == clean_title.lower():
+            item["title"] = clean_title
+            item["content"] = clean_content
+            item["priority"] = priority
+            item["updated_at"] = now
+            item["tags"] = sorted(set(item.get("tags", [])) | set(merged_tags))
+            item["content_hash"] = c_hash
+            atomic_write_json(prof_path, prof_data)
+            return {"status": "updated_global", "profile_path": str(prof_path), "entry": item}
+
+    new_item = {
+        "id": generate_entry_id("gmem"),
+        "type": entry_type,
+        "title": clean_title,
+        "content": clean_content,
+        "priority": priority,
+        "source": source,
+        "tags": merged_tags,
+        "created_at": now,
+        "updated_at": now,
+        "content_hash": c_hash,
+    }
+    entries.append(new_item)
+    atomic_write_json(prof_path, prof_data)
+    return {"status": "added_global", "profile_path": str(prof_path), "entry": new_item}
+
+
+def sync_global_preferences_to_workspace(
+    workspace_root: Path,
+    global_dir: Path | str | None = None,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Import global developer preferences into the current project's .ai-memory/ store."""
+    workspace_root = workspace_root.resolve()
+    prof_path = get_global_profile_path(global_dir)
+    if not prof_path.exists():
+        return {"status": "no_global_profile", "profile_path": str(prof_path), "imported_count": 0, "entries": []}
+    if prof_path.is_symlink():
+        raise SecurityViolationError(f"Symlinked global profile file rejected: {prof_path}")
+
+    prof_data = json.loads(prof_path.read_text(encoding="utf-8"))
+    global_entries = prof_data.get("entries", [])
+    imported_ids: list[str] = []
+    dedup_count = 0
+
+    for g_entry in global_entries:
+        res = add_memory_entry(
+            workspace_root=workspace_root,
+            entry_type=g_entry.get("type", "preference"),
+            title=g_entry.get("title", "Global Preference"),
+            content=g_entry.get("content", ""),
+            source=g_entry.get("source", "global-profile"),
+            priority=g_entry.get("priority", "high"),
+            tags=list(set(g_entry.get("tags", []) + ["global-profile"])),
+            allow_redact_secrets=True,
+            dry_run=dry_run,
+        )
+        if res["status"] == "added":
+            imported_ids.append(res["entry"]["id"])
+        else:
+            dedup_count += 1
+
+    return {
+        "status": "global_synced",
+        "profile_path": str(prof_path),
+        "imported_count": len(imported_ids),
+        "deduplicated_count": dedup_count,
+        "imported_ids": imported_ids,
+    }
+
+
+def run_and_watch_command(
+    workspace_root: Path,
+    command: list[str],
+    source: str = "test-watcher",
+    timeout_sec: int = 120,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Execute a build/test command and automatically capture failures (task_pending) or resolutions (bug_fix)."""
+    workspace_root = workspace_root.resolve()
+    if not command:
+        raise MemoryBridgeError("No command provided to run-watch.")
+    if command[0] == "--":
+        command = command[1:]
+    if not command:
+        raise MemoryBridgeError("No command provided after '--' to run-watch.")
+
+    cmd_display = " ".join(command)
+    cmd_short = cmd_display[:56]
+    task_title = f"Fix failing command: {cmd_short}"
+
+    try:
+        proc = subprocess.run(
+            command,
+            cwd=str(workspace_root),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout_sec,
+        )
+        returncode = proc.returncode
+        combined_out = ((proc.stdout or "") + "\n" + (proc.stderr or "")).strip()
+    except Exception as exc:
+        returncode = 1
+        combined_out = f"Execution error: {exc}"
+
+    # Redact any accidental secrets from command output before storing in memory
+    redacted_out, _ = redact_secrets(combined_out)
+    # Strip prompt-injection-like substrings if any appear in test output
+    for hit in scan_for_prompt_injection(redacted_out):
+        redacted_out = redacted_out.replace(hit["snippet"], "[REDACTED_DIRECTIVE]")
+
+    lines = [ln.strip() for ln in redacted_out.splitlines() if ln.strip()]
+    tail_snippet = " | ".join(lines[-8:])[:600] if lines else "No output captured."
+    referenced_files = extract_file_references(redacted_out)
+
+    paths = get_memory_paths(workspace_root)
+    if not paths["memory_json"].exists() and not dry_run:
+        initialize_workspace(workspace_root)
+
+    if returncode != 0:
+        content = (
+            f"Command `{cmd_display}` failed with exit code {returncode}. "
+            f"Diagnostic excerpt: {tail_snippet}"
+        )
+        # Check if an active task_pending already exists for this command
+        if paths["memory_json"].exists():
+            data = load_memory(workspace_root)
+            for existing in data.get("entries", []):
+                if (
+                    existing.get("type") == "task_pending"
+                    and existing.get("status") == "active"
+                    and existing.get("title") == task_title
+                ):
+                    existing["content"] = sanitize_text_for_markdown(content)
+                    existing["updated_at"] = utc_now_iso()
+                    existing["files"] = sorted(set(existing.get("files", []) + referenced_files))
+                    existing["content_hash"] = compute_content_hash("task_pending", task_title, existing["content"])
+                    if not dry_run:
+                        save_memory(
+                            workspace_root,
+                            data,
+                            action="run_watch_failure_updated",
+                            agent=source,
+                            details={"command": cmd_display, "exit_code": returncode, "entry_id": existing["id"]},
+                        )
+                    return {
+                        "status": "command_failed",
+                        "exit_code": returncode,
+                        "command": cmd_display,
+                        "action_taken": "updated_pending_task",
+                        "entry": existing,
+                    }
+
+        res = add_memory_entry(
+            workspace_root=workspace_root,
+            entry_type="task_pending",
+            title=task_title,
+            content=content,
+            source=source,
+            priority="high",
+            tags=["test-failure", "auto-watch"],
+            files=referenced_files,
+            allow_redact_secrets=True,
+            dry_run=dry_run,
+        )
+        return {
+            "status": "command_failed",
+            "exit_code": returncode,
+            "command": cmd_display,
+            "action_taken": "created_pending_task",
+            "entry": res["entry"],
+        }
+
+    # Command succeeded (exit_code == 0): check if there was a previously failing task_pending to resolve!
+    resolved_task: dict[str, Any] | None = None
+    if paths["memory_json"].exists():
+        data = load_memory(workspace_root)
+        for existing in data.get("entries", []):
+            if (
+                existing.get("type") == "task_pending"
+                and existing.get("status") == "active"
+                and (existing.get("title") == task_title or "test-failure" in existing.get("tags", []))
+            ):
+                resolved_task = existing
+                break
+
+    if resolved_task is not None:
+        if not dry_run:
+            complete_pending_task(
+                workspace_root,
+                resolved_task["id"],
+                resolution_note=f"Verified passing via `{cmd_display}` (exit code 0).",
+                source=source,
+            )
+        bug_fix_res = add_memory_entry(
+            workspace_root=workspace_root,
+            entry_type="bug_fix",
+            title=f"Resolved failure in: {cmd_short}",
+            content=(
+                f"Previously failing command `{cmd_display}` (task `{resolved_task['id']}`) "
+                f"now passes with exit code 0."
+            ),
+            source=source,
+            priority="high",
+            tags=["test-resolved", "auto-watch"],
+            files=resolved_task.get("files", []),
+            allow_redact_secrets=True,
+            dry_run=dry_run,
+        )
+        return {
+            "status": "command_passed_and_resolved",
+            "exit_code": 0,
+            "command": cmd_display,
+            "resolved_task_id": resolved_task["id"],
+            "bug_fix_entry": bug_fix_res["entry"],
+        }
+
+    return {
+        "status": "command_passed",
+        "exit_code": 0,
+        "command": cmd_display,
+        "action_taken": "none",
+    }
+
+
 def handle_hook_event(workspace_root: Path, event_name: str) -> dict[str, Any]:
     """Handle lifecycle hook events (SessionStart / PostToolUse / Stop) with automatic progress saving."""
     workspace_root = workspace_root.resolve()
@@ -584,6 +859,8 @@ def main(argv: list[str] | None = None) -> int:
     p_add.add_argument("--branch", default=None, help="Git branch name (auto-detected if omitted).")
     p_add.add_argument("--files", default="", help="Comma-separated relative file paths related to this entry.")
     p_add.add_argument("--supersedes", default=None, help="Entry ID that this entry replaces/updates.")
+    p_add.add_argument("--global", dest="save_global", action="store_true", help="Also save preference/constraint to global developer profile (~/.ai-memory-global/).")
+    p_add.add_argument("--global-dir", default=None, help="Optional override directory for global developer profile.")
     p_add.add_argument("--redact-secrets", action="store_true", help="Automatically mask detected secrets instead of failing.")
     p_add.add_argument("--dry-run", action="store_true", help="Preview without writing.")
     p_add.add_argument("--json", action="store_true", help="Output JSON.")
@@ -644,6 +921,20 @@ def main(argv: list[str] | None = None) -> int:
     p_compact.add_argument("--max-tokens", type=int, default=2500, help="Max active token budget.")
     p_compact.add_argument("--json", action="store_true", help="Output JSON.")
 
+    p_sync_global = subparsers.add_parser("sync-global", help="Import global developer preferences (~/.ai-memory-global/) into workspace.")
+    p_sync_global.add_argument("--workspace", default=".", help="Workspace root directory.")
+    p_sync_global.add_argument("--global-dir", default=None, help="Optional override directory for global developer profile.")
+    p_sync_global.add_argument("--dry-run", action="store_true", help="Preview without writing.")
+    p_sync_global.add_argument("--json", action="store_true", help="Output JSON.")
+
+    p_runwatch = subparsers.add_parser("run-watch", help="Run a build/test command and auto-capture failures (task_pending) or fixes (bug_fix).")
+    p_runwatch.add_argument("--workspace", default=".", help="Workspace root directory.")
+    p_runwatch.add_argument("--source", default="test-watcher", help="Agent or watcher label.")
+    p_runwatch.add_argument("--timeout", type=int, default=120, help="Command timeout in seconds.")
+    p_runwatch.add_argument("--dry-run", action="store_true", help="Preview without writing.")
+    p_runwatch.add_argument("--json", action="store_true", help="Output JSON.")
+    p_runwatch.add_argument("cmd", nargs=argparse.REMAINDER, help="Command to execute (prefix with '--').")
+
     args = parser.parse_args(argv)
 
     if args.hook_event:
@@ -678,6 +969,18 @@ def main(argv: list[str] | None = None) -> int:
                 allow_redact_secrets=args.redact_secrets,
                 dry_run=args.dry_run,
             )
+            if getattr(args, "save_global", False) and not args.dry_run:
+                g_res = save_global_entry(
+                    entry_type=args.type,
+                    title=args.title,
+                    content=args.content,
+                    priority=args.priority,
+                    source=args.source,
+                    tags=tag_list,
+                    allow_redact_secrets=args.redact_secrets,
+                    global_dir=args.global_dir,
+                )
+                res["global_profile"] = g_res
             if args.json:
                 print(json.dumps(res, indent=2))
             else:
@@ -806,6 +1109,33 @@ def main(argv: list[str] | None = None) -> int:
                     f"Compacted memory: archived {stats['archived_count']} entries, "
                     f"{stats['active_remaining']} active remaining (~{stats['estimated_active_tokens']} tokens)."
                 )
+
+        elif args.command == "sync-global":
+            res = sync_global_preferences_to_workspace(
+                workspace_root=ws,
+                global_dir=args.global_dir,
+                dry_run=args.dry_run,
+            )
+            if args.json:
+                print(json.dumps(res, indent=2))
+            else:
+                print(
+                    f"Global profile sync ({res['status']}): {res['imported_count']} imported, "
+                    f"{res.get('deduplicated_count', 0)} deduplicated."
+                )
+
+        elif args.command == "run-watch":
+            res = run_and_watch_command(
+                workspace_root=ws,
+                command=args.cmd,
+                source=args.source,
+                timeout_sec=args.timeout,
+                dry_run=args.dry_run,
+            )
+            if args.json:
+                print(json.dumps(res, indent=2))
+            else:
+                print(f"[{res['status'].upper()}] Exit code {res['exit_code']} for `{res['command']}`")
 
     except MemoryBridgeError as exc:
         if getattr(args, "json", False):

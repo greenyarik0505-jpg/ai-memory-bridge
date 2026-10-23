@@ -21,9 +21,19 @@ SCRIPTS_DIR = REPO_ROOT / "skills" / "ai-memory-bridge" / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-from capture import add_memory_entry, capture_git_context  # noqa: E402
+from capture import (  # noqa: E402
+    add_memory_entry,
+    capture_git_context,
+    complete_pending_task,
+    run_and_watch_command,
+    save_global_entry,
+    sync_global_preferences_to_workspace,
+)
 from dashboard import generate_dashboard  # noqa: E402
+from diff import compute_memory_diff  # noqa: E402
 from doctor import run_diagnostics  # noqa: E402
+from export import export_memory  # noqa: E402
+from guard import run_guard  # noqa: E402
 from init import initialize_workspace  # noqa: E402
 from memory_utils import (  # noqa: E402
     detect_stale_file_references,
@@ -260,6 +270,156 @@ class AdvancedFeaturesTests(unittest.TestCase):
         zh_hits = search_memory_entries(data["entries"], query="数据库连接池", top_k=2)
         self.assertGreaterEqual(len(zh_hits), 1)
         self.assertEqual(zh_hits[0]["title"], "数据库连接池配置")
+
+    def test_08_architecture_and_constraint_guard(self) -> None:
+        initialize_workspace(self.ws, project_name="guard-test")
+        add_memory_entry(
+            self.ws,
+            entry_type="constraint",
+            title="HTTP Client Policy",
+            content="Use `httpx` for async requests; never use `requests` in application code.",
+            priority="critical",
+        )
+        add_memory_entry(
+            self.ws,
+            entry_type="constraint",
+            title="Запрет sqlite3",
+            content="Запрещено использовать `sqlite3` в продакшене.",
+            priority="high",
+        )
+
+        src_dir = self.ws / "src"
+        src_dir.mkdir()
+        app_py = src_dir / "client.py"
+        app_py.write_text("import requests\nimport sqlite3\n\ndef fetch(): pass\n", encoding="utf-8")
+
+        report = run_guard(self.ws)
+        self.assertEqual(report["status"], "violation")
+        self.assertEqual(report["violations_count"], 2)
+        targets = {v["target"] for v in report["violations"]}
+        self.assertIn("requests", targets)
+        self.assertIn("sqlite3", targets)
+
+        # Fix the code to comply with memory constraints
+        app_py.write_text("import httpx\n\ndef fetch(): pass\n", encoding="utf-8")
+        report_clean = run_guard(self.ws)
+        self.assertEqual(report_clean["status"], "pass")
+        self.assertEqual(report_clean["violations_count"], 0)
+
+    def test_09_test_watcher_auto_captures_failure_and_resolution(self) -> None:
+        initialize_workspace(self.ws, project_name="watcher-test")
+        check_script = self.ws / "check_math.py"
+        check_script.write_text("import sys\nprint('AssertionError in src/calc.py:42')\nsys.exit(1)\n", encoding="utf-8")
+
+        # 1. Failing run -> creates high-priority task_pending
+        fail_res = run_and_watch_command(
+            self.ws,
+            command=[sys.executable, "check_math.py"],
+            source="claude-code",
+        )
+        self.assertEqual(fail_res["status"], "command_failed")
+        self.assertEqual(fail_res["action_taken"], "created_pending_task")
+        task_id = fail_res["entry"]["id"]
+
+        # 2. Passing run -> auto-completes task_pending and records bug_fix
+        check_script.write_text("import sys\nprint('OK')\nsys.exit(0)\n", encoding="utf-8")
+        pass_res = run_and_watch_command(
+            self.ws,
+            command=[sys.executable, "check_math.py"],
+            source="codex",
+        )
+        self.assertEqual(pass_res["status"], "command_passed_and_resolved")
+        self.assertEqual(pass_res["resolved_task_id"], task_id)
+        self.assertEqual(pass_res["bug_fix_entry"]["type"], "bug_fix")
+
+    def test_10_global_developer_profile_sync(self) -> None:
+        global_dir = self.ws / "global_profile"
+        g_res = save_global_entry(
+            entry_type="preference",
+            title="Russian Language Communication",
+            content="Always communicate with the user in Russian.",
+            priority="critical",
+            source="user",
+            global_dir=global_dir,
+        )
+        self.assertEqual(g_res["status"], "added_global")
+
+        project_ws = self.ws / "new_repo"
+        project_ws.mkdir()
+        initialize_workspace(project_ws, project_name="new-repo")
+
+        sync_res = sync_global_preferences_to_workspace(project_ws, global_dir=global_dir)
+        self.assertEqual(sync_res["status"], "global_synced")
+        self.assertEqual(sync_res["imported_count"], 1)
+
+        data = load_memory(project_ws)
+        titles = [e["title"] for e in data["entries"]]
+        self.assertIn("Russian Language Communication", titles)
+
+    def test_11_memory_time_travel_diff(self) -> None:
+        initialize_workspace(self.ws, project_name="diff-test")
+        # Revision 1 is initial empty memory
+        t_res = add_memory_entry(
+            self.ws,
+            entry_type="task_pending",
+            title="Implement JWT Auth",
+            content="Add token verification middleware.",
+            priority="high",
+            source="claude-code",
+        )
+        d1_res = add_memory_entry(
+            self.ws,
+            entry_type="decision",
+            title="Cache Backend",
+            content="Use in-memory LRU cache.",
+            priority="medium",
+            source="claude-code",
+        )
+        complete_pending_task(self.ws, t_res["entry"]["id"], resolution_note="Done", source="codex")
+        add_memory_entry(
+            self.ws,
+            entry_type="decision",
+            title="Cache Backend",
+            content="Migrated to Redis 7 for multi-worker cache consistency.",
+            priority="high",
+            supersedes=d1_res["entry"]["id"],
+            source="codex",
+        )
+
+        diff = compute_memory_diff(self.ws, from_rev=2)
+        self.assertEqual(diff["status"], "diff_computed")
+        self.assertGreaterEqual(diff["summary"]["completed_tasks_count"], 1)
+        self.assertGreaterEqual(diff["summary"]["superseded_count"], 1)
+
+    def test_12_export_pr_changelog_and_compact(self) -> None:
+        initialize_workspace(self.ws, project_name="export-test")
+        add_memory_entry(
+            self.ws,
+            entry_type="goal",
+            title="Zero-Downtime Billing Migration",
+            content="Migrate subscription webhooks without dropping events.",
+            priority="critical",
+        )
+        t = add_memory_entry(
+            self.ws,
+            entry_type="task_pending",
+            title="Idempotency Keys",
+            content="Add idempotency key deduplication table.",
+            priority="high",
+        )
+        complete_pending_task(self.ws, t["entry"]["id"], resolution_note="Verified", source="cursor")
+
+        pr_res = export_memory(self.ws, export_format="pr", out_file="PR_SUMMARY.md")
+        self.assertEqual(pr_res["status"], "exported")
+        self.assertIn("Pull Request Summary", pr_res["content"])
+        self.assertIn("Idempotency Keys", pr_res["content"])
+        self.assertTrue((self.ws / "PR_SUMMARY.md").exists())
+
+        cl_res = export_memory(self.ws, export_format="changelog")
+        self.assertIn("## [Unreleased]", cl_res["content"])
+
+        compact_res = export_memory(self.ws, export_format="compact")
+        self.assertIn("Zero-Downtime Billing Migration", compact_res["content"])
 
 
 if __name__ == "__main__":

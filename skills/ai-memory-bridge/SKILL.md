@@ -6,12 +6,15 @@ description: >-
   Gemini CLI, OpenCode, GitHub Copilot). Captures project goals, architectural decisions,
   completed and pending tasks, technical constraints, bug fixes, user preferences, next steps,
   and session summaries in `.ai-memory/` with automatic deduplication, conflict detection,
-  secret scanning, versioned history, and non-destructive rule syncing. Use whenever the user
+  secret scanning, versioned history, architecture compliance guard, test failure watcher,
+  global developer profile, PR/Changelog export, and non-destructive rule syncing. Use whenever the user
   says "Remember this project", "Save our progress", "Save everything important about this project",
   "Prepare a handoff for Codex/Cursor/Claude/Antigravity", "Continue where Claude Code stopped",
   "Resume project from memory", "Sync project memory", "Check memory conflicts", "Restore previous memory",
+  "Check architecture constraints", "Generate PR summary from memory", "Show memory diff",
   or asks in any language (e.g., "Запомни этот проект", "Сохрани наш прогресс", "Подготовь передачу для Codex/Cursor",
-  "Продолжи с того места, где остановился Claude", "Синхронизируй память", "Запам'ятай цей проєкт",
+  "Продолжи с того места, где остановился Claude", "Синхронизируй память", "Проверь соблюдение ограничений",
+  "Сгенерируй описание PR из памяти", "Что изменилось в памяти", "Запам'ятай цей проєкт",
   "Збережи прогрес", "记住这个项目", "保存当前进度", "准备交接给 Codex", "Guarda nuestro progreso",
   "Sincronizar memoria del proyecto", "Projektfortschritt speichern").
 license: MIT
@@ -172,6 +175,28 @@ python "<SKILL_DIR>/scripts/restore.py" --workspace "." --revision 3 --dry-run
 
 # Execute rollback after user confirmation (creates an automatic pre-restore backup)
 python "<SKILL_DIR>/scripts/restore.py" --workspace "." --revision 3 --confirm
+```
+
+### Workflow 7: Architecture Guard, Test Watcher, Global Profile, Diff & PR Export
+*Triggers: "Check if code violates constraints", "Run tests and capture failures", "Save my global preference", "What changed in memory?", "Generate PR description from memory".*
+
+```bash
+# 1. Architecture & Constraint Guard: verify code against active memory constraints/decisions
+python "<SKILL_DIR>/scripts/guard.py" --workspace "."
+
+# 2. Test & Build Watcher: auto-creates task_pending on failure, or completes task + records bug_fix on pass
+python "<SKILL_DIR>/scripts/capture.py" run-watch --workspace "." --source claude-code -- pytest
+
+# 3. Global Developer Profile (~/.ai-memory-global/): save once, sync across all repositories
+python "<SKILL_DIR>/scripts/capture.py" add --workspace "." --type preference --title "Language" --content "Always communicate with the user in Russian." --priority high --global
+python "<SKILL_DIR>/scripts/capture.py" sync-global --workspace "."
+
+# 4. Memory Time-Travel Diff: compare what changed between two revisions
+python "<SKILL_DIR>/scripts/diff.py" --workspace "." --from-rev 1
+
+# 5. Export Memory to GitHub PR Description, Changelog, or OS Clipboard
+python "<SKILL_DIR>/scripts/export.py" --workspace "." --format pr --branch current --clipboard
+python "<SKILL_DIR>/scripts/export.py" --workspace "." --format changelog --out CHANGELOG.memory.md
 ```
 
 ---
