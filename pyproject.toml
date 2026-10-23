@@ -1,0 +1,54 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ai-memory-bridge"
+version = "1.0.0"
+description = "One Memory. Every AI Agent. Local-first memory synchronization and seamless context handoff for AI coding agents."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+  { name = "AI Memory Bridge Contributors" }
+]
+keywords = [
+  "agent-skills",
+  "ai-agents",
+  "agent-memory",
+  "claude-code",
+  "codex",
+  "cursor",
+  "antigravity",
+  "context-management",
+  "developer-tools",
+  "python",
+]
+classifiers = [
+  "Development Status :: 5 - Production/Stable",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Topic :: Utilities",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/greenyarik0505-jpg/ai-memory-bridge"
+Repository = "https://github.com/greenyarik0505-jpg/ai-memory-bridge"
+Issues = "https://github.com/greenyarik0505-jpg/ai-memory-bridge/issues"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]

@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 500" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#1e293b"/>
+    </linearGradient>
+    <style>
+      .title { font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif; font-size: 13px; fill: #94a3b8; font-weight: 600; }
+      .mono { font-family: 'Consolas', 'JetBrains Mono', 'Courier New', monospace; font-size: 13px; }
+      .prompt { fill: #38bdf8; font-weight: bold; }
+      .cmd { fill: #f8fafc; }
+      .comment { fill: #64748b; font-style: italic; }
+      .ok { fill: #4ade80; font-weight: bold; }
+      .accent { fill: #c084fc; font-weight: bold; }
+      .warn { fill: #fbbf24; font-weight: bold; }
+      .out { fill: #cbd5e1; }
+      .box { fill: #090d16; stroke: #334155; stroke-width: 1.5; rx: 10; }
+      .badge { fill: #1e293b; stroke: #475569; stroke-width: 1; rx: 6; }
+    </style>
+  </defs>
+
+  <rect width="920" height="500" rx="12" fill="url(#bg)"/>
+  <rect x="16" y="16" width="888" height="468" class="box"/>
+
+  <!-- Window Controls -->
+  <circle cx="40" cy="38" r="6" fill="#ef4444"/>
+  <circle cx="60" cy="38" r="6" fill="#f59e0b"/>
+  <circle cx="80" cy="38" r="6" fill="#10b981"/>
+  <text x="460" y="42" text-anchor="middle" class="title">AI Memory Bridge — Live Handoff Trace (Claude Code -&gt; Saved Memory -&gt; OpenAI Codex)</text>
+  <line x1="16" y1="56" x2="904" y2="56" stroke="#334155" stroke-width="1"/>
+
+  <!-- Session 1: Claude Code -->
+  <text x="36" y="84" class="mono comment"># 1. In Claude Code: User says "Save our progress and prepare a handoff for Codex"</text>
+  <text x="36" y="106" class="mono"><tspan class="prompt">claude-code $</tspan> <tspan class="cmd">python scripts/capture.py add --type decision --title "Idempotency Store" \</tspan></text>
+  <text x="36" y="124" class="mono"><tspan class="cmd">  --content "Use PostgreSQL 16 transactional outbox with UNIQUE (provider_id, event_id)." \</tspan></text>
+  <text x="36" y="142" class="mono"><tspan class="cmd">  --priority high --source claude-code</tspan></text>
+  <text x="36" y="164" class="mono"><tspan class="ok">[ADDED]</tspan> <tspan class="out">mem_20261023121346_a9d925cd (decision / high): Idempotency Store</tspan></text>
+
+  <!-- Handoff generation -->
+  <text x="36" y="196" class="mono"><tspan class="prompt">claude-code $</tspan> <tspan class="cmd">python scripts/handoff.py --from claude-code --to codex \</tspan></text>
+  <text x="36" y="214" class="mono"><tspan class="cmd">  --note "HMAC middleware is done; implement the PostgreSQL outbox worker next."</tspan></text>
+  <text x="36" y="236" class="mono"><tspan class="ok">Handoff prepared:</tspan> <tspan class="accent">claude-code -&gt; OpenAI Codex</tspan></text>
+  <text x="36" y="256" class="mono out">  Handoff Packet : .ai-memory/handoffs/handoff-codex.md (~528 tokens)</text>
+  <text x="36" y="276" class="mono out">  Target Rules   : AGENTS.md (updated_bounded_section — existing user rules preserved)</text>
+
+  <line x1="36" y1="296" x2="884" y2="296" stroke="#1e293b" stroke-width="1.5"/>
+
+  <!-- Session 2: OpenAI Codex -->
+  <text x="36" y="322" class="mono comment"># 2. In OpenAI Codex: User says "Continue where Claude Code stopped"</text>
+  <text x="36" y="344" class="mono"><tspan class="prompt">codex $</tspan> <tspan class="cmd">python scripts/capture.py list --type next_step --status active</tspan></text>
+  <text x="36" y="366" class="mono out">Found 1 memory entries:</text>
+  <text x="36" y="386" class="mono"><tspan class="warn">- mem_20261023121346_d4203fa5 [active] (next_step | critical | claude-code):</tspan> <tspan class="cmd">Implement Outbox Worker &amp; Retry Backoff</tspan></text>
+
+  <text x="36" y="418" class="mono"><tspan class="prompt">codex $</tspan> <tspan class="cmd">python scripts/capture.py complete-task --id mem_20261023121346_d4203fa5 --source codex \</tspan></text>
+  <text x="36" y="436" class="mono"><tspan class="cmd">  --note "Implemented FOR UPDATE SKIP LOCKED polling worker and retry tests"</tspan></text>
+  <text x="36" y="458" class="mono"><tspan class="ok">Task marked completed:</tspan> <tspan class="out">mem_20261023121346_d4203fa5 (Implement Outbox Worker &amp; Retry Backoff)</tspan></text>
+</svg>

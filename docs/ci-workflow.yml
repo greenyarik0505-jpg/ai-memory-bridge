@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "master"]
+  pull_request:
+    branches: ["main", "master"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }} / Python ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Run standard library unittest suite
+        run: python -m unittest discover -s tests -v
+
+      - name: Run doctor diagnostics
+        run: python skills/ai-memory-bridge/scripts/doctor.py --workspace .
+
+      - name: Verify reproducible examples
+        run: |
+          python examples/01-claude-to-codex/run_example.py
+          python examples/02-cursor-to-antigravity/run_example.py
+          python examples/03-session-recovery/run_example.py
+          python examples/04-conflict-detection/run_example.py

@@ -1,0 +1,34 @@
+{
+  "entries": [
+    {
+      "type": "constraint",
+      "title": "Zero External Runtime Dependencies",
+      "content": "All CLI utilities must use Python 3.10+ standard library only; no third-party pip packages allowed.",
+      "priority": "critical",
+      "source": "cursor",
+      "tags": ["stdlib", "packaging"]
+    },
+    {
+      "type": "constraint",
+      "title": "Windows Path Compatibility",
+      "content": "Use pathlib.Path everywhere and avoid POSIX-only shell assumptions.",
+      "priority": "high",
+      "source": "cursor",
+      "tags": ["windows", "cross-platform"]
+    },
+    {
+      "type": "task_pending",
+      "title": "Implement Atomic File Persistence",
+      "content": "Ensure all JSON and Markdown writes use tempfile + os.fsync + os.replace.",
+      "priority": "high",
+      "source": "cursor"
+    },
+    {
+      "type": "preference",
+      "title": "Concise Diff Summaries",
+      "content": "Always run dry-run previews before modifying shared project rule files.",
+      "priority": "medium",
+      "source": "cursor"
+    }
+  ]
+}

@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/greenyarik0505-jpg/ai-memory-bridge/schemas/memory-schema.v1.json",
+  "title": "AI Memory Bridge Store Schema v1.0.0",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "project",
+    "revision",
+    "entries",
+    "conflicts",
+    "metadata"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "project": {
+      "type": "object",
+      "required": ["name", "root_hint", "created_at", "updated_at"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "root_hint": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "type",
+          "title",
+          "content",
+          "source",
+          "created_at",
+          "updated_at",
+          "status",
+          "priority",
+          "content_hash"
+        ],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "type": {
+            "type": "string",
+            "enum": [
+              "goal",
+              "decision",
+              "task_done",
+              "task_pending",
+              "constraint",
+              "bug_fix",
+              "preference",
+              "next_step",
+              "session_summary"
+            ]
+          },
+          "title": { "type": "string", "minLength": 1 },
+          "content": { "type": "string", "minLength": 1 },
+          "source": { "type": "string", "minLength": 1 },
+          "created_at": { "type": "string", "format": "date-time" },
+          "updated_at": { "type": "string", "format": "date-time" },
+          "status": {
+            "type": "string",
+            "enum": ["active", "superseded", "completed", "archived", "conflicted"]
+          },
+          "priority": {
+            "type": "string",
+            "enum": ["critical", "high", "medium", "low"]
+          },
+          "tags": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "supersedes": { "type": ["string", "null"] },
+          "superseded_by": { "type": ["string", "null"] },
+          "content_hash": { "type": "string", "minLength": 64, "maxLength": 64 }
+        }
+      }
+    },
+    "conflicts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "entry_ids", "topic", "reason", "detected_at", "status"],
+        "properties": {
+          "id": { "type": "string" },
+          "entry_ids": {
+            "type": "array",
+            "items": { "type": "string" },
+            "minItems": 2
+          },
+          "topic": { "type": "string" },
+          "reason": { "type": "string" },
+          "detected_at": { "type": "string" },
+          "status": {
+            "type": "string",
+            "enum": ["unresolved", "resolved"]
+          },
+          "resolution_note": { "type": "string" }
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "last_agent": { "type": "string" },
+        "last_session_id": { "type": "string" },
+        "auto_capture_enabled": { "type": "boolean" },
+        "compaction_count": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

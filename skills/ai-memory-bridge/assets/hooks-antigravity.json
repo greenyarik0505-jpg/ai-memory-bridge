@@ -1,0 +1,19 @@
+{
+  "ai-memory-bridge": {
+    "enabled": true,
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "python \".agents/skills/ai-memory-bridge/scripts/capture.py\" --workspace \".\" --hook-event SessionStart",
+        "timeout": 15
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "python \".agents/skills/ai-memory-bridge/scripts/capture.py\" --workspace \".\" --hook-event Stop",
+        "timeout": 15
+      }
+    ]
+  }
+}

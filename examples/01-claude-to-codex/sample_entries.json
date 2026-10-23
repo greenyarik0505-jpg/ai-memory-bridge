@@ -1,0 +1,34 @@
+{
+  "entries": [
+    {
+      "type": "goal",
+      "title": "High-Throughput Webhook Ingestion Service",
+      "content": "Build an async webhook receiver capable of handling 5,000 requests/sec with idempotent delivery guarantees.",
+      "priority": "critical",
+      "source": "claude-code",
+      "tags": ["architecture", "webhooks"]
+    },
+    {
+      "type": "decision",
+      "title": "Idempotency & Deduplication Store",
+      "content": "Use PostgreSQL 16 with an UNIQUE constraint on (provider_id, event_id) and transactional outbox table.",
+      "priority": "high",
+      "source": "claude-code",
+      "tags": ["database", "postgresql"]
+    },
+    {
+      "type": "task_done",
+      "title": "HMAC Signature Verification Middleware",
+      "content": "Implemented constant-time HMAC-SHA256 verification and replay-window timestamp check in src/middleware/hmac.py.",
+      "priority": "high",
+      "source": "claude-code"
+    },
+    {
+      "type": "next_step",
+      "title": "Implement Outbox Worker & Retry Backoff",
+      "content": "Create the background worker that polls pending outbox rows with FOR UPDATE SKIP LOCKED and exponential backoff.",
+      "priority": "critical",
+      "source": "claude-code"
+    }
+  ]
+}
