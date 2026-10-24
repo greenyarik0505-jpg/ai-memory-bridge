@@ -21,6 +21,7 @@ SCRIPTS_DIR = REPO_ROOT / "skills" / "ai-memory-bridge" / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
+from autopilot import enable_autopilot, get_autopilot_status, run_autopilot_tick  # noqa: E402
 from capture import (  # noqa: E402
     add_memory_entry,
     capture_git_context,
@@ -420,6 +421,53 @@ class AdvancedFeaturesTests(unittest.TestCase):
 
         compact_res = export_memory(self.ws, export_format="compact")
         self.assertIn("Zero-Downtime Billing Migration", compact_res["content"])
+
+    def test_13_zero_prompt_autopilot_and_realtime_propagation(self) -> None:
+        subprocess.run(["git", "init"], cwd=str(self.ws), capture_output=True, check=False)
+        res = enable_autopilot(
+            self.ws,
+            targets="claude-code,codex,cursor,antigravity",
+            enable_git_hooks=True,
+            enable_agent_hooks=True,
+        )
+        self.assertEqual(res["status"], "autopilot_enabled")
+        self.assertIn("post-commit", res["git_hooks"]["hooks"])
+
+        # Verify always-on rule files exist
+        self.assertTrue((self.ws / "CLAUDE.md").exists())
+        self.assertTrue((self.ws / "AGENTS.md").exists())
+        self.assertTrue((self.ws / ".cursor" / "rules" / "ai-memory-bridge.mdc").exists())
+        self.assertTrue((self.ws / ".agents" / "rules" / "ai-memory-bridge.md").exists())
+        self.assertIn(
+            "trigger: always_on",
+            (self.ws / ".agents" / "rules" / "ai-memory-bridge.md").read_text(encoding="utf-8"),
+        )
+
+        # Now add an entry via capture.py WITHOUT calling sync.py or dashboard.py manually
+        add_memory_entry(
+            self.ws,
+            entry_type="decision",
+            title="Zero-Prompt Real-Time Sync",
+            content="Every capture.py write immediately updates all agent rule files and dashboard.html.",
+            priority="critical",
+            source="claude-code",
+        )
+
+        # Verify it propagated automatically to AGENTS.md, CLAUDE.md, .agents/rules, and dashboard.html!
+        self.assertIn("Zero-Prompt Real-Time Sync", (self.ws / "AGENTS.md").read_text(encoding="utf-8"))
+        self.assertIn("Zero-Prompt Real-Time Sync", (self.ws / "CLAUDE.md").read_text(encoding="utf-8"))
+        self.assertIn(
+            "Zero-Prompt Real-Time Sync",
+            (self.ws / ".agents" / "rules" / "ai-memory-bridge.md").read_text(encoding="utf-8"),
+        )
+        self.assertIn(
+            "Zero-Prompt Real-Time Sync",
+            (self.ws / ".ai-memory" / "dashboard.html").read_text(encoding="utf-8"),
+        )
+
+        stat_res = get_autopilot_status(self.ws)
+        self.assertTrue(stat_res["auto_capture_enabled"])
+        self.assertGreaterEqual(len(stat_res["always_on_rule_files"]), 3)
 
 
 if __name__ == "__main__":

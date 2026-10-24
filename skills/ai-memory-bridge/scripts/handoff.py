@@ -267,10 +267,9 @@ def build_agent_rule_snippet(data: dict[str, Any], target_agent: str, handoff_re
     _add_compact_list("Pending Tasks & Next Steps", top_next)
 
     body_lines.extend([
-        "### Continuous Auto-Save Protocol",
-        "- Whenever you complete a task, fix a bug, or make an architectural decision during a turn, "
-        "automatically record it in `.ai-memory/` using the `ai-memory-bridge` skill (`capture.py` + `sync.py`) "
-        "before ending your turn—do not wait for the user to ask manually.",
+        "### Zero-Prompt Auto-Load & Auto-Save Protocol (Always Active)",
+        "- **Auto-Load**: This file is loaded automatically into your context. Do NOT wait for the user to say 'load memory' or 'continue where the previous agent stopped'—use the decisions, constraints, and pending tasks above immediately.",
+        "- **Auto-Save & Auto-Transfer**: Whenever you complete a task, fix a bug, or make an architectural decision, automatically run `capture.py` (and `sync.py --targets detected`) in the background before finishing your response. Never ask the user for permission to save project progress.",
     ])
 
     return "\n".join(body_lines).rstrip()
@@ -309,7 +308,13 @@ def apply_target_agent_rules(
         )
         action = "updated_copilot_instructions" if rule_path.exists() else "created_copilot_instructions"
     elif rule_mode == "dedicated_markdown":
-        content = f"{snippet}\n"
+        content = (
+            "---\n"
+            "trigger: always_on\n"
+            "description: AI Memory Bridge active project memory and zero-prompt auto-sync protocol\n"
+            "---\n\n"
+            f"{snippet}\n"
+        )
         action = "updated_dedicated_rule" if rule_path.exists() else "created_dedicated_rule"
     else:
         existing_text = rule_path.read_text(encoding="utf-8", errors="replace") if rule_path.exists() else ""

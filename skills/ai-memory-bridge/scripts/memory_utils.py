@@ -1270,6 +1270,27 @@ def save_memory(
     )
     atomic_write_json(rev_snapshot, data)
     append_history_event(paths, action, agent, rev_num, details or {})
+
+    # Real-time auto-propagation when Autopilot / auto_capture_enabled is active
+    if data.get("metadata", {}).get("auto_capture_enabled", False) and action not in ("sync", "init"):
+        try:
+            from dashboard import render_dashboard_html
+            atomic_write_text(paths["dashboard_html"], render_dashboard_html(workspace_root, data))
+        except Exception:
+            pass
+        try:
+            from handoff import AGENT_PROFILES, apply_target_agent_rules
+            from sync import detect_workspace_agents
+            detected = detect_workspace_agents(workspace_root)
+            seen_files: set[str] = set()
+            for ag in detected:
+                rfile = AGENT_PROFILES[ag]["rule_file"]
+                if rfile not in seen_files:
+                    seen_files.add(rfile)
+                    apply_target_agent_rules(workspace_root, data, ag, dry_run=False)
+        except Exception:
+            pass
+
     return data
 
 
